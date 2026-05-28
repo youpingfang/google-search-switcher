@@ -99,6 +99,38 @@ async function openWithPreference(tabId, url) {
   return openNextToTab(tabId, url);
 }
 
+function getDirectUrl(text) {
+  const value = String(text || "").trim();
+  if (!value || /\s/.test(value)) return null;
+
+  const withProtocol = /^[a-z][a-z\d+.-]*:\/\//i.test(value);
+  const candidate = withProtocol ? value : `https://${value}`;
+
+  if (!withProtocol) {
+    const hostPart = value.split(/[/?#]/, 1)[0].split(":", 1)[0];
+    const domainLike =
+      hostPart === "localhost" ||
+      /^(\d{1,3}\.){3}\d{1,3}$/.test(hostPart) ||
+      /^(?:[a-z0-9-]+\.)+[a-z]{2,}$/i.test(hostPart);
+    if (!domainLike) return null;
+  }
+
+  try {
+    const url = new URL(candidate);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url.href;
+  } catch (err) {
+    return null;
+  }
+}
+
+function buildSearchOrDirectUrl(text, engine) {
+  const directUrl = getDirectUrl(text);
+  if (directUrl) return directUrl;
+  const query = encodeURIComponent(text);
+  return engine.template.replace(/%s/g, query);
+}
+
 chrome.contextMenus.onClicked.addListener((info) => {
   if (!info.selectionText) return;
   const menuId = String(info.menuItemId || "");
@@ -108,8 +140,7 @@ chrome.contextMenus.onClicked.addListener((info) => {
   getEngines().then((engines) => {
     const engine = engines[index];
     if (!engine || !engine.template) return;
-    const query = encodeURIComponent(info.selectionText);
-    const url = engine.template.replace(/%s/g, query);
+    const url = buildSearchOrDirectUrl(info.selectionText, engine);
     openWithPreference(info.tabId, url);
   });
 });

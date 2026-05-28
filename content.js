@@ -11,7 +11,10 @@ const RETURN_TIMEOUT_MS = 3000;
 const DEFAULT_FLOAT_ORDER = ["copy", "translate"];
 let floatOrder = DEFAULT_FLOAT_ORDER.slice();
 let floatDragging = null;
-let floatDragOver = null;
+let floatDropBefore = null;
+let selectionTimer = null;
+let lastRenderedSelection = "";
+let isPointerSelecting = false;
 
 const LABELS = {
   zh: {
@@ -36,6 +39,38 @@ function t(key) {
 
 function getTopEngines() {
   return enginesCache.slice(0, maxButtons);
+}
+
+function getDirectUrl(text) {
+  const value = String(text || "").trim();
+  if (!value || /\s/.test(value)) return null;
+
+  const withProtocol = /^[a-z][a-z\d+.-]*:\/\//i.test(value);
+  const candidate = withProtocol ? value : `https://${value}`;
+
+  if (!withProtocol) {
+    const hostPart = value.split(/[/?#]/, 1)[0].split(":", 1)[0];
+    const domainLike =
+      hostPart === "localhost" ||
+      /^(\d{1,3}\.){3}\d{1,3}$/.test(hostPart) ||
+      /^(?:[a-z0-9-]+\.)+[a-z]{2,}$/i.test(hostPart);
+    if (!domainLike) return null;
+  }
+
+  try {
+    const url = new URL(candidate);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url.href;
+  } catch (err) {
+    return null;
+  }
+}
+
+function buildSearchOrDirectUrl(text, engine) {
+  const directUrl = getDirectUrl(text);
+  if (directUrl) return directUrl;
+  const query = encodeURIComponent(text);
+  return engine.template.replace(/%s/g, query);
 }
 
 function normalizeFloatOrder(order) {
@@ -68,13 +103,81 @@ function normalizeFloatOrder(order) {
   return result;
 }
 
+function getEngineId(index) {
+  return `engine:${index}`;
+}
 
-function getFloatAfterElement(container, y) {
-  const items = [...container.querySelectorAll("[data-order-id]:not(.mes-dragging)")];
+function getEngineIndex(orderId) {
+  if (typeof orderId !== "string" || !orderId.startsWith("engine:")) return null;
+  const idx = Number(orderId.slice("engine:".length));
+  if (!Number.isFinite(idx) || idx < 0 || idx >= enginesCache.length) return null;
+  return idx;
+}
+
+function getOrderedEngineIds(order = floatOrder) {
+  const result = [];
+  const seen = new Set();
+  normalizeFloatOrder(order).forEach((item) => {
+    const idx = getEngineIndex(item);
+    if (idx == null) return;
+    const id = getEngineId(idx);
+    if (seen.has(id)) return;
+    seen.add(id);
+    result.push(id);
+  });
+  enginesCache.forEach((_, idx) => {
+    const id = getEngineId(idx);
+    if (seen.has(id)) return;
+    seen.add(id);
+    result.push(id);
+  });
+  return result;
+}
+
+function getExpandedFloatOrder(order = floatOrder) {
+  const result = [];
+  const seen = new Set();
+  normalizeFloatOrder(order).forEach((item) => {
+    if (item === "engines") {
+      getOrderedEngineIds(order).forEach((id) => {
+        if (seen.has(id)) return;
+        seen.add(id);
+        result.push(id);
+      });
+      return;
+    }
+    if (item === "more") return;
+    const idx = getEngineIndex(item);
+    const normalized = idx == null ? item : getEngineId(idx);
+    if (seen.has(normalized)) return;
+    seen.add(normalized);
+    result.push(normalized);
+  });
+  getOrderedEngineIds(order).forEach((id) => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    result.push(id);
+  });
+  return result;
+}
+
+function canShowEngine(orderId, renderedEngines) {
+  const idx = getEngineIndex(orderId);
+  return idx != null && !renderedEngines.has(idx) && renderedEngines.size < maxButtons;
+}
+
+
+function getFloatAfterElement(container, x) {
+  const items = [...container.children].filter(
+    (child) =>
+      child instanceof HTMLElement &&
+      child.dataset.orderId &&
+      child !== floatDragging
+  );
   return items.reduce(
     (closest, child) => {
       const box = child.getBoundingClientRect();
-      const offset = y - box.top - box.height / 2;
+      const offset = x - box.left - box.width / 2;
       if (offset < 0 && offset > closest.offset) {
         return { offset, element: child };
       }
@@ -147,7 +250,6 @@ function renderButtons(selectionText) {
   if (!floatEl) floatEl = createFloat();
   floatEl.innerHTML = "";
   const engines = getTopEngines();
-  const remaining = enginesCache.slice(engines.length);
   const renderedEngines = new Set();
 
   const appendCopy = () => {
@@ -178,6 +280,7 @@ function renderButtons(selectionText) {
   const appendEngines = () => {
     engines.forEach((engine, idx) => {
       if (renderedEngines.has(idx)) return;
+      if (renderedEngines.size >= maxButtons) return;
       renderedEngines.add(idx);
       const btn = document.createElement("button");
       btn.type = "button";
@@ -186,8 +289,7 @@ function renderButtons(selectionText) {
       btn.dataset.orderId = `engine:${idx}`;
       btn.addEventListener("click", (event) => {
         event.stopPropagation();
-        const query = encodeURIComponent(selectionText);
-        const url = engine.template.replace(/%s/g, query);
+        const url = buildSearchOrDirectUrl(selectionText, engine);
         chrome.runtime.sendMessage({ type: "open-url", url });
       });
       floatEl.appendChild(btn);
@@ -219,6 +321,13 @@ function renderButtons(selectionText) {
   };
 
   const appendMore = () => {
+    const remaining = getOrderedEngineIds()
+      .map((id) => {
+        const idx = getEngineIndex(id);
+        return idx == null ? null : { engine: enginesCache[idx], idx };
+      })
+      .filter(Boolean)
+      .filter(({ idx }) => !renderedEngines.has(idx));
     if (!remaining.length) return;
     const moreWrap = document.createElement("div");
     moreWrap.className = "mes-more";
@@ -234,14 +343,15 @@ function renderButtons(selectionText) {
       dropdownEl = document.createElement("div");
       dropdownEl.className = "mes-dropdown open";
 
-      remaining.forEach((engine) => {
+      remaining.forEach(({ engine, idx }) => {
         const item = document.createElement("button");
         item.type = "button";
         item.textContent = engine.name;
+        item.setAttribute("draggable", "true");
+        item.dataset.orderId = `engine:${idx}`;
         item.addEventListener("click", (e) => {
           e.stopPropagation();
-          const query = encodeURIComponent(selectionText);
-          const url = engine.template.replace(/%s/g, query);
+          const url = buildSearchOrDirectUrl(selectionText, engine);
           chrome.runtime.sendMessage({ type: "open-url", url });
         });
         dropdownEl.appendChild(item);
@@ -273,9 +383,7 @@ function renderButtons(selectionText) {
     if (item === "engines") appendEngines();
     if (typeof item === "string" && item.startsWith("engine:")) {
       const idx = Number(item.slice("engine:".length));
-      if (!Number.isFinite(idx) || idx < 0 || idx >= enginesCache.length) return;
-      if (idx >= maxButtons) return;
-      if (renderedEngines.has(idx)) return;
+      if (!canShowEngine(item, renderedEngines)) return;
       const engine = enginesCache[idx];
       if (!engine) return;
       renderedEngines.add(idx);
@@ -286,8 +394,7 @@ function renderButtons(selectionText) {
       btn.dataset.orderId = `engine:${idx}`;
       btn.addEventListener("click", (event) => {
         event.stopPropagation();
-        const query = encodeURIComponent(selectionText);
-        const url = engine.template.replace(/%s/g, query);
+        const url = buildSearchOrDirectUrl(selectionText, engine);
         chrome.runtime.sendMessage({ type: "open-url", url });
       });
       floatEl.appendChild(btn);
@@ -302,6 +409,7 @@ function renderButtons(selectionText) {
       if (!(target instanceof HTMLElement)) return;
       if (!target.dataset.orderId) return;
       floatDragging = target;
+      floatDropBefore = null;
       target.classList.add("mes-dragging");
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData("text/plain", "");
@@ -309,41 +417,59 @@ function renderButtons(selectionText) {
 
     floatEl.addEventListener("dragover", (event) => {
       event.preventDefault();
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      const candidate = target.closest("[data-order-id]");
-      if (!candidate || candidate === floatDragging) return;
-      floatDragOver = candidate;
+      if (!floatDragging) return;
+      event.dataTransfer.dropEffect = "move";
+      floatDropBefore = getFloatAfterElement(floatEl, event.clientX);
     });
 
     floatEl.addEventListener("drop", (event) => {
       event.preventDefault();
-      if (!floatDragging || !floatDragOver || floatDragging === floatDragOver) return;
-      const a = floatDragging;
-      const b = floatDragOver;
-      const aNext = a.nextSibling;
-      const bNext = b.nextSibling;
-      const parent = a.parentNode;
-      if (!parent) return;
-      if (aNext === b) {
-        parent.insertBefore(b, a);
-      } else if (bNext === a) {
-        parent.insertBefore(a, b);
-      } else {
-        parent.insertBefore(a, bNext);
-        parent.insertBefore(b, aNext);
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest(".mes-dropdown")) {
+        return;
       }
-      const order = Array.from(parent.querySelectorAll("[data-order-id]")).map(
-        (el) => el.dataset.orderId
-      );
+      if (!floatDragging || !floatDragging.dataset.orderId) return;
+
+      const draggingId = floatDragging.dataset.orderId;
+      const beforeId = floatDropBefore?.dataset.orderId || null;
+      const order = getExpandedFloatOrder().filter((id) => id !== draggingId);
+      const visibleOrder = Array.from(floatEl.children)
+        .filter((el) => el instanceof HTMLElement && el.dataset.orderId)
+        .map((el) => el.dataset.orderId)
+        .filter((id) => id && id !== draggingId);
+      const visibleEngineOrder = visibleOrder.filter((id) => getEngineIndex(id) != null);
+      const isHiddenEngine =
+        getEngineIndex(draggingId) != null && floatDragging.parentElement !== floatEl;
+
+      let insertIndex = order.length;
+      if (beforeId && order.includes(beforeId)) {
+        insertIndex = order.indexOf(beforeId);
+      } else if (visibleOrder.length) {
+        const lastVisibleId = visibleOrder[visibleOrder.length - 1];
+        insertIndex = order.includes(lastVisibleId)
+          ? order.indexOf(lastVisibleId) + 1
+          : order.length;
+      }
+
+      if (isHiddenEngine && visibleEngineOrder.length >= maxButtons) {
+        const lastVisibleEngineId = visibleEngineOrder[visibleEngineOrder.length - 1];
+        const lastVisibleEngineIndex = order.indexOf(lastVisibleEngineId);
+        if (lastVisibleEngineIndex >= 0 && insertIndex > lastVisibleEngineIndex) {
+          insertIndex = lastVisibleEngineIndex;
+        }
+      }
+
+      order.splice(insertIndex, 0, draggingId);
       persistFloatOrder(order);
+      renderButtons(selectionText);
+      floatEl.style.display = "flex";
     });
 
     floatEl.addEventListener("dragend", () => {
       if (!floatDragging) return;
       floatDragging.classList.remove("mes-dragging");
       floatDragging = null;
-      floatDragOver = null;
+      floatDropBefore = null;
     });
   }
 }
@@ -378,10 +504,34 @@ function positionFloat(rect) {
   floatEl.style.left = `${left}px`;
 }
 
+function getSelectionRect(selection) {
+  if (!selection || selection.rangeCount === 0) return null;
+  const range = selection.getRangeAt(0);
+  const rect = range.getBoundingClientRect();
+  if (rect.width > 0 || rect.height > 0) return rect;
+
+  const rects = Array.from(range.getClientRects()).filter(
+    (item) => item.width > 0 || item.height > 0
+  );
+  if (!rects.length) return null;
+  return rects[rects.length - 1];
+}
+
+function scheduleSelectionCheck(delay = 80) {
+  if (selectionTimer) clearTimeout(selectionTimer);
+  selectionTimer = setTimeout(() => {
+    selectionTimer = null;
+    handleSelection();
+  }, delay);
+}
+
 function handleSelection() {
+  if (isPointerSelecting) return;
+  if (floatDragging) return;
   const selection = window.getSelection();
   if (!selection || selection.isCollapsed) {
     lastSelection = "";
+    lastRenderedSelection = "";
     clearFloat();
     return;
   }
@@ -389,38 +539,91 @@ function handleSelection() {
   const text = selection.toString().trim();
   if (!text) {
     lastSelection = "";
+    lastRenderedSelection = "";
     clearFloat();
     return;
   }
 
-  const range = selection.getRangeAt(0);
-  const rect = range.getBoundingClientRect();
-  if (rect.width === 0 && rect.height === 0) {
-    clearFloat();
+  const rect = getSelectionRect(selection);
+  if (!rect) {
     return;
   }
 
   lastSelection = text;
-  renderButtons(text);
+  if (lastRenderedSelection !== text || !floatEl || floatEl.style.display !== "flex") {
+    renderButtons(text);
+    lastRenderedSelection = text;
+  }
   floatEl.style.display = "flex";
   positionFloat(rect);
 
   startHideTimer();
 }
 
+function isFloatEventTarget(target) {
+  return target instanceof Node && floatEl && floatEl.contains(target);
+}
+
+function handlePointerStart(event) {
+  if (isFloatEventTarget(event.target)) return;
+  isPointerSelecting = true;
+  if (!window.getSelection()?.isCollapsed && lastSelection) return;
+  lastRenderedSelection = "";
+  clearFloat();
+}
+
+function handlePointerEnd(event) {
+  if (isFloatEventTarget(event.target)) return;
+  isPointerSelecting = false;
+  scheduleSelectionCheck(30);
+}
+
+window.addEventListener("mouseup", handlePointerEnd, true);
+window.addEventListener("pointerup", handlePointerEnd, true);
+window.addEventListener("pointercancel", () => {
+  isPointerSelecting = false;
+}, true);
+
 document.addEventListener("mouseup", (event) => {
   if (floatEl && floatEl.contains(event.target)) return;
-  setTimeout(handleSelection, 0);
+  isPointerSelecting = false;
+  scheduleSelectionCheck(30);
 });
 
 document.addEventListener("scroll", () => {
   clearFloat();
 });
 
-document.addEventListener("mousedown", (event) => {
+window.addEventListener("mousedown", handlePointerStart, true);
+window.addEventListener("pointerdown", handlePointerStart, true);
+
+document.addEventListener("selectionchange", () => {
+  scheduleSelectionCheck(120);
+});
+
+document.addEventListener("keyup", (event) => {
+  const selectionKey =
+    event.key.startsWith("Arrow") ||
+    event.key === "Shift" ||
+    event.key === "Meta" ||
+    event.key === "Control";
+  if (selectionKey) {
+    scheduleSelectionCheck(30);
+  }
+});
+
+document.addEventListener("touchend", () => {
+  isPointerSelecting = false;
+  scheduleSelectionCheck(120);
+});
+
+document.addEventListener("touchstart", (event) => {
   if (floatEl && floatEl.contains(event.target)) return;
-  if (!window.getSelection()?.isCollapsed && lastSelection) return;
-  clearFloat();
+  isPointerSelecting = true;
+});
+
+window.addEventListener("blur", () => {
+  isPointerSelecting = false;
 });
 
 document.addEventListener("mousemove", (event) => {
