@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy Policy for Google Search Switcher</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC",
+          "Microsoft YaHei", sans-serif;
+        line-height: 1.65;
+      }
+
+      body {
+        margin: 0;
+        color: #172026;
+        background: #f7f9fb;
+      }
+
+      main {
+        max-width: 880px;
+        margin: 0 auto;
+        padding: 40px 20px 64px;
+      }
+
+      article {
+        background: #ffffff;
+        border: 1px solid #dce4ea;
+        border-radius: 8px;
+        padding: 32px;
+        box-shadow: 0 12px 32px rgba(23, 32, 38, 0.08);
+      }
+
+      h1,
+      h2 {
+        line-height: 1.25;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 32px;
+      }
+
+      h2 {
+        margin: 32px 0 12px;
+        font-size: 20px;
+      }
+
+      p,
+      ul {
+        margin: 12px 0;
+      }
+
+      ul {
+        padding-left: 24px;
+      }
+
+      a {
+        color: #0b66c3;
+      }
+
+      .date {
+        margin-top: 0;
+        color: #5f6b76;
+      }
+
+      .strong {
+        font-weight: 700;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        body {
+          color: #eef3f7;
+          background: #11171d;
+        }
+
+        article {
+          background: #172026;
+          border-color: #2c3844;
+          box-shadow: none;
+        }
+
+        .date {
+          color: #a8b4bf;
+        }
+
+        a {
+          color: #7db7ff;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <article>
+        <h1>Privacy Policy for Google Search Switcher</h1>
+        <p class="date"><strong>Effective Date:</strong> June 10, 2026</p>
+
+        <p>
+          Google Search Switcher（以下简称“本扩展”）是一款 Chrome 浏览器扩展，核心功能为在选中文本后快速使用用户配置的搜索引擎进行搜索，并提供右键快捷搜索、浮层按钮、自定义搜索引擎排序等功能。本政策说明本扩展如何处理用户数据。
+        </p>
+
+        <h2>1. Data Collection</h2>
+        <p class="strong">
+          本扩展不收集、不上传、不共享、不出售、不跟踪任何用户个人数据。
+        </p>
+        <ul>
+          <li>不收集姓名、邮箱、手机号、IP 等个人身份信息</li>
+          <li>不记录浏览历史、访问网站、搜索关键词</li>
+          <li>不使用任何统计、分析、广告或跟踪脚本（如 Google Analytics）</li>
+          <li>不向任何第三方服务器发送数据</li>
+          <li>不读取、不上传、不修改网页中的密码、表单内容或其他隐私内容</li>
+        </ul>
+
+        <h2>2. Local Storage（chrome.storage）</h2>
+        <p>
+          本扩展仅使用 Chrome 浏览器提供的 <code>chrome.storage</code> 在本地保存用户偏好设置，包括：
+        </p>
+        <ul>
+          <li>用户自定义的搜索引擎名称和搜索 URL 模板</li>
+          <li>常用搜索引擎排序</li>
+          <li>浮层按钮数量、浮层位置、新标签页打开位置等显示设置</li>
+          <li>语言、翻译服务提供方等功能偏好</li>
+        </ul>
+        <p>
+          这些数据仅存储在用户浏览器中，仅供本扩展读取和使用，不上传云端，不共享给第三方。用户可以通过卸载扩展或清除扩展数据来删除这些设置。
+        </p>
+
+        <h2>3. Permissions Usage（最小必要）</h2>
+        <h3>contextMenus</h3>
+        <p>
+          用于在浏览器右键菜单中添加本扩展的快捷搜索入口。该权限仅用于创建扩展自身菜单项，不用于读取、上传或传输用户数据。
+        </p>
+
+        <h3>storage</h3>
+        <p>
+          用于在浏览器本地保存用户的搜索引擎配置和界面偏好，详见第 2 条。
+        </p>
+
+        <h3>Content Scripts（matches: &lt;all_urls&gt;）</h3>
+        <p>
+          本扩展需要在网页中检测用户主动选中的文本，并在选区附近显示浮层按钮。该脚本仅在浏览器本地运行，不会上传页面内容、选中文本或浏览行为。选中文本只会在用户点击搜索、翻译或复制等按钮时，用于执行对应的本地操作或打开用户选择的搜索/翻译页面。
+        </p>
+
+        <h2>4. Third Parties</h2>
+        <p>
+          本扩展不集成任何第三方广告、统计、分析 SDK，也不与任何第三方服务器进行数据交互。用户点击搜索或翻译按钮后，浏览器会打开相应搜索引擎或翻译服务页面；这些第三方网站的数据处理行为由其各自隐私政策约束。
+        </p>
+
+        <h2>5. Children's Privacy</h2>
+        <p>
+          本扩展不面向 13 岁以下儿童，也不会有意收集未成年人的个人信息。
+        </p>
+
+        <h2>6. Changes to This Policy</h2>
+        <p>
+          如本政策发生更新，更新后的政策将在项目页面或扩展相关页面公示。继续使用本扩展即表示接受更新后的政策。
+        </p>
+
+        <h2>7. Contact</h2>
+        <p>
+          如有隐私相关问题，请联系项目作者：
+          <a href="https://github.com/youpingfang">https://github.com/youpingfang</a>
+        </p>
+      </article>
+    </main>
+  </body>
+</html>
